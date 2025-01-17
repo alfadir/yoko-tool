@@ -217,6 +217,9 @@ def parse_arguments():
     text = "Redirect the output to a file instead of the standard output stream."
     pars.add_argument("-o", "--outfile", help=text)
 
+    text = "Redirect the output to an influx instance"
+    pars.add_argument("-i", "--influxdb", help=text)
+
     subpars = pars.add_subparsers(title="supported commands", metavar="")
     subpars.required = True
 
@@ -448,6 +451,33 @@ def read_command(args, pmeter):
             raise Error("cannot run '%s':\n%s" % (" ".join(args.command), err))
         LOG.debug("started: %s", " ".join(args.command))
 
+    if args.influxdb:
+        try:
+            from urllib.parse import urlparse
+        except ImportError:
+            raise Error("cannot not import urllib:\n%s" % (err))
+        LOG.debug("imported urllib")
+        try:
+            from influxdb import InfluxDBClient
+        except ImportError:
+            raise Error("cannot not import influxdb:\n%s" % (err))
+        LOG.debug("imported influxdb")
+
+        ix = urlparse(args.influx)
+        if not ix.hostname:
+            ix = urlparse('//'+args.influx)
+        if ix.port:
+            client = DataFrameClient(ix.hostname,ix.port)
+        else:
+            client = DataFrameClient(ix.hostname)
+        client.create_database('db_yoko')
+        LOG.debug("influxdb client started : %s:%s" %(host, port))
+        instname = pmeter.name.replace(" ","_")
+        instserial = pmeter.command("get-id").replace(",","_")
+        insttype = pmeter.pmtype
+        mstr = '{measurement},instname={instname},instserial={instserial},insttype={insttype} value={value} {timestamp}'
+        influxdata = list()
+
     # We keep the max. lengths of printed items in this dictionary in order to aling the output.
     maxlens = {idx : 0 for idx in range(len(ditems))}
     count = 0
@@ -487,6 +517,23 @@ def read_command(args, pmeter):
                 print_data.append(fmt % (data[idx] + ","))
             print_data.append(data[-1])
             LOG.info(" ".join(print_data))
+
+        if args.influxdb:
+            tstamp = int(float(data[0])*1000)
+            for idx in range(1,len(data)):
+                vstr = mstr.format(measurement=ditems[idx],
+                        instname=instname,
+                        instserial=instserial,
+                        insttype=insttype,
+                        value=data[idx],
+                        timestamp=tstamp)
+                influxdata.append(vstr)
+
+            if len(influxdata) > 30 or (count_limit is not None and count >= count_limit):
+                LOG.debug("Batch write (%d) to influx from [" % len(influxdata)+
+                         influxdata[0] + "] to ["+influxdata[-1] )
+                client.write_points('\n'.join(influxdata), database='db_yoko', protocol='line', time_precision='ms')
+                influxdata = list()
 
 def integration_wait_subcommand(_, pmeter):
     """
