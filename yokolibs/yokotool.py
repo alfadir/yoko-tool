@@ -220,6 +220,18 @@ def parse_arguments():
     text = "Redirect the output to an influxdb instance"
     pars.add_argument("-i", "--influxdb", help=text)
 
+    text = "Select tag for where the instrument is connected"
+    pars.add_argument("-it", "--influxdbtarget", help=text, const="default")
+
+    text = "Redirect the output to an influxdb v2 instance"
+    pars.add_argument("-i2", "--influxdbv2", help=text)
+
+    text = "Influxdb v2 Access Token"
+    pars.add_argument("-i2token", "--influxdbv2token", help=text)
+
+    text = "Influxdb v2 Organisation"
+    pars.add_argument("-i2org", "--influxdbv2org", help=text)
+
     subpars = pars.add_subparsers(title="supported commands", metavar="")
     subpars.required = True
 
@@ -475,8 +487,36 @@ def read_command(args, pmeter):
         instname = pmeter.name.replace(" ","_")
         instserial = pmeter.command("get-id").replace(",","_")
         insttype = pmeter.pmtype
-        mstr = '{measurement},instname={instname},instserial={instserial},insttype={insttype} value={value} {timestamp}'
+        mstr = '{measurement},instname={instname},instserial={instserial},insttype={insttype},target={influxdbtarget} value={value} {timestamp}'
         influxdata = list()
+
+    if args.influxdbv2:
+        if args.influxdbv2 and (args.influxdbv2token is None or args.influxdbv2org is None):
+            raise Error("for influxdbv2 a influxdbv2token and influxdbv2org flag is needed:\n%s" % (err))
+        try:
+            from influxdb_client import InfluxDBClient, Point
+        except ImportError:
+            raise Error("cannot not import influxdb_client (influxdbv2):\n%s" % (err))
+        LOG.debug("imported influxdbv2")
+
+        client = InfluxDBClient(url=args.influxdbv2, token=args.influxdbv2token, org=args.influxdbv2org)
+        write_api = client.write_api()
+        buckets_api = client.buckets_api()
+        buckets = buckets_api.find_buckets_iter()
+        bucket_exists = False
+        for bucket in buckets:
+            if bucket.name == "yoko":
+                LOG.debug("bucket yoko found")
+                bucket_exists = True
+        if not bucket_exists:
+            LOG.debug("creating bucket yoko")
+            created_bucket = buckets_api.create_bucket(bucket_name="yoko",
+                                                       org=org)
+        LOG.debug("influxdbv2 client started")
+        instname = pmeter.name.replace(" ","_")
+        instserial = pmeter.command("get-id").replace(",","_")
+        insttype = pmeter.pmtype
+
 
     # We keep the max. lengths of printed items in this dictionary in order to aling the output.
     maxlens = {idx : 0 for idx in range(len(ditems))}
@@ -534,6 +574,21 @@ def read_command(args, pmeter):
                          influxdata[0] + "] to ["+influxdata[-1] )
                 client.write_points('\n'.join(influxdata), database='db_yoko', protocol='line', time_precision='ms')
                 influxdata = list()
+
+        if args.influxdbv2:
+            tstamp = int(float(data[0])*1000)
+            point = Point("power-analysis")
+            point.tag("instname", f'{instname}')
+            point.tag("instserial", f'{instserial}')
+            point.tag("insttype", f'{insttype}')
+            point.tag("target", f'{args.influxdbtarget}')
+            point.time(tstamp)
+
+            for idx in range(1,len(data)):
+                point.field(ditems[idx],data[idx])
+
+            write_api.write(bucket="yoko", org=args.influxdbv2org, record=point)
+
 
 def integration_wait_subcommand(_, pmeter):
     """
