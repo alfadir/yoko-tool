@@ -217,7 +217,7 @@ def parse_arguments():
     text = "Redirect the output to a file instead of the standard output stream."
     pars.add_argument("-o", "--outfile", help=text)
 
-    text = "Redirect the output to an influx instance"
+    text = "Redirect the output to an influxdb instance"
     pars.add_argument("-i", "--influxdb", help=text)
 
     subpars = pars.add_subparsers(title="supported commands", metavar="")
