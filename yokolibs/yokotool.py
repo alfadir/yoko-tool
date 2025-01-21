@@ -218,19 +218,19 @@ def parse_arguments():
     pars.add_argument("-o", "--outfile", help=text)
 
     text = "Redirect the output to an influxdb instance"
-    pars.add_argument("-i", "--influxdb", help=text)
+    pars.add_argument("-i", "--influxdb", help=text, nargs="?")
 
     text = "Select tag for where the instrument is connected"
-    pars.add_argument("-it", "--influxdbtarget", help=text, const="default")
+    pars.add_argument("-it", "--influxdbtarget", help=text, nargs="?", const="default")
 
     text = "Redirect the output to an influxdb v2 instance"
-    pars.add_argument("-i2", "--influxdbv2", help=text)
+    pars.add_argument("-i2", "--influxdbv2", help=text, nargs="?")
 
     text = "Influxdb v2 Access Token"
-    pars.add_argument("-i2token", "--influxdbv2token", help=text)
+    pars.add_argument("-i2token", "--influxdbv2token", help=text, nargs="?")
 
     text = "Influxdb v2 Organisation"
-    pars.add_argument("-i2org", "--influxdbv2org", help=text)
+    pars.add_argument("-i2org", "--influxdbv2org", help=text, nargs="?")
 
     subpars = pars.add_subparsers(title="supported commands", metavar="")
     subpars.required = True
@@ -562,11 +562,12 @@ def read_command(args, pmeter):
             tstamp = int(float(data[0])*1000)
             for idx in range(1,len(data)):
                 vstr = mstr.format(measurement=ditems[idx],
-                        instname=instname,
-                        instserial=instserial,
-                        insttype=insttype,
-                        value=data[idx],
-                        timestamp=tstamp)
+                                   instname=instname,
+                                   instserial=instserial,
+                                   insttype=insttype,
+                                   influxdbtarget = args.influxdbtarget,
+                                   value=data[idx],
+                                   timestamp=tstamp)
                 influxdata.append(vstr)
 
             if len(influxdata) > 30 or (count_limit is not None and count >= count_limit):
