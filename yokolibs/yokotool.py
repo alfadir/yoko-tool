@@ -499,7 +499,8 @@ def read_command(args, pmeter):
             raise Error("cannot not import influxdb_client (influxdbv2):\n%s" % (err))
         LOG.debug("imported influxdbv2")
 
-        client = InfluxDBClient(url=args.influxdbv2, token=args.influxdbv2token, org=args.influxdbv2org)
+        client = InfluxDBClient(url=args.influxdbv2, token=args.influxdbv2token,
+                                org=args.influxdbv2org,verify_ssl=False)
         write_api = client.write_api()
         buckets_api = client.buckets_api()
         buckets = buckets_api.find_buckets_iter()
