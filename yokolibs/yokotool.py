@@ -218,19 +218,12 @@ def parse_arguments():
     pars.add_argument("-o", "--outfile", help=text)
 
     text = "Redirect the output to an influxdb instance"
-    pars.add_argument("-i", "--influxdb", help=text, nargs="?")
-
-    text = "Select tag for where the instrument is connected"
-    pars.add_argument("-it", "--influxdbtarget", help=text, nargs="?", const="default")
+    pars.add_argument("-i","--influxdb", help=text,
+                      action=argparse.BooleanOptionalAction, default=False)
 
     text = "Redirect the output to an influxdb v2 instance"
-    pars.add_argument("-i2", "--influxdbv2", help=text, nargs="?")
-
-    text = "Influxdb v2 Access Token"
-    pars.add_argument("-i2token", "--influxdbv2token", help=text, nargs="?")
-
-    text = "Influxdb v2 Organisation"
-    pars.add_argument("-i2org", "--influxdbv2org", help=text, nargs="?")
+    pars.add_argument("-i2","--influxdbv2", help=text,
+                      action=argparse.BooleanOptionalAction, default=False)
 
     subpars = pars.add_subparsers(title="supported commands", metavar="")
     subpars.required = True
@@ -432,12 +425,16 @@ def set_command(args, pmeter):
 def read_command(args, pmeter):
     """Implements the 'read' command."""
 
-    if not args.value:
+    if not args.value or not pmeter.read:
         text = pmeter.get_argument_help("read-data")
         LOG.info("Use the following data items:\n%s", text)
         return
+    if pmeter.read:
+        readvalues = pmeter.read
+    if args.value:
+        readvalues = args.value
 
-    ditems = [ditem.strip() for ditem in args.value.strip().strip(",").split(",")]
+    ditems = [ditem.strip() for ditem in readvalues.strip().strip(",").split(",")]
     pmeter.command("configure-data-items", ditems)
 
     count_limit = time_limit = None
@@ -464,6 +461,8 @@ def read_command(args, pmeter):
         LOG.debug("started: %s", " ".join(args.command))
 
     if args.influxdb:
+        iconfig = Config.parse_config_files(secname="influxdb")
+        LOG.debug(f'influxdb configuration : {iconfig}')
         try:
             from urllib.parse import urlparse
         except ImportError:
@@ -474,8 +473,9 @@ def read_command(args, pmeter):
         except ImportError:
             raise Error("cannot not import influxdb:\n%s" % (err))
         LOG.debug("imported influxdb")
-
-        ix = urlparse(args.influx)
+        host = iconfig.get("host")
+        LOG.debug(f"influx host : {host}")
+        ix = urlparse(host)
         if not ix.hostname:
             ix = urlparse('//'+args.influx)
         if ix.port:
@@ -491,16 +491,20 @@ def read_command(args, pmeter):
         influxdata = list()
 
     if args.influxdbv2:
-        if args.influxdbv2 and (args.influxdbv2token is None or args.influxdbv2org is None):
-            raise Error("for influxdbv2 a influxdbv2token and influxdbv2org flag is needed:\n%s" % (err))
+        i2config = Config.parse_config_files(secname="influxdbv2")
+        LOG.debug(f'influxdbv2 configuration : {i2config}')
+        host = i2config.get("host")
+        token = i2config.get("token")
+        org = i2config.get("org")
+        if args.influxdbv2 and (host is None or token is None or org is None):
+            raise Error("for influxdbv2 a section in yokotool.conf is needed with host, token and org:\n%s" % (err))
         try:
             from influxdb_client import InfluxDBClient, Point
         except ImportError:
             raise Error("cannot not import influxdb_client (influxdbv2):\n%s" % (err))
         LOG.debug("imported influxdbv2")
 
-        client = InfluxDBClient(url=args.influxdbv2, token=args.influxdbv2token,
-                                org=args.influxdbv2org,verify_ssl=False)
+        client = InfluxDBClient(url=host, token=token, org=org,verify_ssl=False)
         write_api = client.write_api()
         buckets_api = client.buckets_api()
         buckets = buckets_api.find_buckets_iter()
@@ -514,10 +518,12 @@ def read_command(args, pmeter):
             created_bucket = buckets_api.create_bucket(bucket_name="yoko",
                                                        org=org)
         LOG.debug("influxdbv2 client started")
+
+    if args.influxdb or args.influxdbv2:
         instname = pmeter.name.replace(" ","_")
         instserial = pmeter.command("get-id").replace(",","_")
         insttype = pmeter.pmtype
-
+        connected = pmeter.connected
 
     # We keep the max. lengths of printed items in this dictionary in order to aling the output.
     maxlens = {idx : 0 for idx in range(len(ditems))}
@@ -563,10 +569,10 @@ def read_command(args, pmeter):
             tstamp = int(float(data[0])*1000)
             for idx in range(1,len(data)):
                 vstr = mstr.format(measurement=ditems[idx],
-                                   instname=instname,
-                                   instserial=instserial,
-                                   insttype=insttype,
-                                   influxdbtarget = args.influxdbtarget,
+                                   instrumentname=instname,
+                                   instrumentserial=instserial,
+                                   instrumenttype=insttype,
+                                   instrumenttarget=connected,
                                    value=data[idx],
                                    timestamp=tstamp)
                 influxdata.append(vstr)
@@ -578,18 +584,20 @@ def read_command(args, pmeter):
                 influxdata = list()
 
         if args.influxdbv2:
+            i2config = Config.parse_config_files(secname="influxdbv2")
+            LOG.debug(f'influxdb configuration : {i2config}')
             tstamp = int(float(data[0])*1000)
             point = Point("power-analysis")
-            point.tag("instname", f'{instname}')
-            point.tag("instserial", f'{instserial}')
-            point.tag("insttype", f'{insttype}')
-            point.tag("target", f'{args.influxdbtarget}')
+            point.tag("instrumentname", f'{instname}')
+            point.tag("instrumentserial", f'{instserial}')
+            point.tag("instrumenttype", f'{insttype}')
+            point.tag("instrumenttarget", f'{connected}')
             point.time(tstamp)
 
             for idx in range(1,len(data)):
                 point.field(ditems[idx],data[idx])
 
-            write_api.write(bucket="yoko", org=args.influxdbv2org, record=point)
+            write_api.write(bucket="yoko", org=org, record=point)
 
 
 def integration_wait_subcommand(_, pmeter):
