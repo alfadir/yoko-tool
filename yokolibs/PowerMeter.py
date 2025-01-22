@@ -102,8 +102,8 @@ class PowerMeter:
             self._transport = Transport.Transport(**kwargs)
 
         pmtype = kwargs.get("pmtype", None)
-        connected = kwargs.get("connected", "default")
-        read = kwargs.get("read", None)
+        self.connected = kwargs.get("connected", "default")
+        self.read = kwargs.get("read", None)
 
         if pmtype:
             pmtype = pmtype.lower()

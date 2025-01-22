@@ -34,6 +34,11 @@ CONFIG_OPTIONS = {
     "pmtype"   : {"type" : str},
     "read"     : {"type" : str},
     "connected": {"type" : str},
+    "host"     : {"type" : str},
+    "token"    : {"type" : str},
+    "org"      : {"type" : str},
+    "cert"     : {"type" : str},
+    "quiet"    : {"type" : str},
 }
 
 def _parse_config_file(cfgfile, secname, config):

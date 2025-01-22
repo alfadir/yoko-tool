@@ -22,6 +22,7 @@ from __future__ import absolute_import, division, print_function
 import os
 import sys
 import time
+import datetime
 import logging
 import argparse
 import textwrap
@@ -425,7 +426,7 @@ def set_command(args, pmeter):
 def read_command(args, pmeter):
     """Implements the 'read' command."""
 
-    if not args.value or not pmeter.read:
+    if not args.value and not pmeter.read:
         text = pmeter.get_argument_help("read-data")
         LOG.info("Use the following data items:\n%s", text)
         return
@@ -453,6 +454,7 @@ def read_command(args, pmeter):
         LOG.info(",".join(ditems))
 
     proc = None
+    quiet = None
     if args.command:
         try:
             proc = subprocess.Popen(args.command)
@@ -474,6 +476,7 @@ def read_command(args, pmeter):
             raise Error("cannot not import influxdb:\n%s" % (err))
         LOG.debug("imported influxdb")
         host = iconfig.get("host")
+        quiet = iconfig.get("quiet")
         LOG.debug(f"influx host : {host}")
         ix = urlparse(host)
         if not ix.hostname:
@@ -496,6 +499,8 @@ def read_command(args, pmeter):
         host = i2config.get("host")
         token = i2config.get("token")
         org = i2config.get("org")
+        cert = i2config.get("cert")
+        quiet = i2config.get("quiet")
         if args.influxdbv2 and (host is None or token is None or org is None):
             raise Error("for influxdbv2 a section in yokotool.conf is needed with host, token and org:\n%s" % (err))
         try:
@@ -504,7 +509,7 @@ def read_command(args, pmeter):
             raise Error("cannot not import influxdb_client (influxdbv2):\n%s" % (err))
         LOG.debug("imported influxdbv2")
 
-        client = InfluxDBClient(url=host, token=token, org=org,verify_ssl=False)
+        client = InfluxDBClient(url=host, token=token, org=org, ssl_ca_cert=cert)
         write_api = client.write_api()
         buckets_api = client.buckets_api()
         buckets = buckets_api.find_buckets_iter()
@@ -529,7 +534,8 @@ def read_command(args, pmeter):
     maxlens = {idx : 0 for idx in range(len(ditems))}
     count = 0
     start_time = time.time()
-
+    start_txt = time.strftime("%Y-%m-%d %H:%M:%S %Z", time.gmtime(start_time))
+    LOG.info(f"Starting logging: {start_txt}")
     while True:
         if proc:
             exitcode = proc.poll()
@@ -555,7 +561,8 @@ def read_command(args, pmeter):
         count += 1
 
         if args.no_align:
-            LOG.info(",".join(data))
+            if not quiet == "yes":
+                LOG.info(",".join(data))
         else:
             print_data = []
             for idx in range(len(data) -1):
@@ -563,18 +570,19 @@ def read_command(args, pmeter):
                 fmt = "%%-%ds" % (maxlens[idx] + 1)
                 print_data.append(fmt % (data[idx] + ","))
             print_data.append(data[-1])
-            LOG.info(" ".join(print_data))
+            if not quiet == "yes":
+                LOG.info(" ".join(print_data))
 
         if args.influxdb:
-            tstamp = int(float(data[0])*1000)
-            for idx in range(1,len(data)):
+            timestamp = datetime.datetime.now(datetime.timezone.utc)
+            for idx in range(0,len(data)):
                 vstr = mstr.format(measurement=ditems[idx],
                                    instrumentname=instname,
                                    instrumentserial=instserial,
                                    instrumenttype=insttype,
                                    instrumenttarget=connected,
                                    value=data[idx],
-                                   timestamp=tstamp)
+                                   timestamp=timestamp)
                 influxdata.append(vstr)
 
             if len(influxdata) > 30 or (count_limit is not None and count >= count_limit):
@@ -584,19 +592,17 @@ def read_command(args, pmeter):
                 influxdata = list()
 
         if args.influxdbv2:
-            i2config = Config.parse_config_files(secname="influxdbv2")
-            LOG.debug(f'influxdb configuration : {i2config}')
-            tstamp = int(float(data[0])*1000)
+            timestamp = datetime.datetime.now(datetime.timezone.utc)
             point = Point("power-analysis")
             point.tag("instrumentname", f'{instname}')
             point.tag("instrumentserial", f'{instserial}')
             point.tag("instrumenttype", f'{insttype}')
             point.tag("instrumenttarget", f'{connected}')
-            point.time(tstamp)
+            point.time(timestamp)
 
-            for idx in range(1,len(data)):
-                point.field(ditems[idx],data[idx])
-
+            for idx in range(0,len(data)):
+                point.field(ditems[idx],float(data[idx]))
+            LOG.debug(f"Write Point to influx from [{point}]" )
             write_api.write(bucket="yoko", org=org, record=point)
 
 
