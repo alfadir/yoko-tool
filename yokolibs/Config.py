@@ -32,6 +32,8 @@ CONFIG_OPTIONS = {
     "devnode"  : {"type" : str},
     "baudrate" : {"type" : int},
     "pmtype"   : {"type" : str},
+    "read"     : {"type" : str},
+    "connected": {"type" : str},
 }
 
 def _parse_config_file(cfgfile, secname, config):
